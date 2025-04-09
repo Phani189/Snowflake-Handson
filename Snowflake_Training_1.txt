@@ -1,0 +1,394 @@
+--ACTIVITY-1 
+
+--SCD Type 2 is designed to preserve historical data by creating new records for each change in the dimension. This allows you to track the history of changes over time.
+--Implementation of SCD Type 2 
+
+CREATE OR REPLACE WAREHOUSE TR_WH
+WAREHOUSE_SIZE='SMALL';
+
+CREATE OR REPLACE DATABASE TRAINING_1;
+
+CREATE OR REPLACE SCHEMA TR_SCHEMA;
+
+CREATE OR REPLACE TABLE employee_dim (
+    emp_id INT,
+    emp_name STRING,
+    state STRING,
+    effective_date DATE,
+    end_date DATE,
+    current_flag BOOLEAN
+);
+
+INSERT INTO employee_dim (emp_id, emp_name, state, effective_date, end_date, current_flag)
+VALUES 
+(1111, 'Tom', 'MI', '2020-10-08', '9999-12-31', TRUE),
+(1212, 'Adam', 'MN', '2020-10-08', '9999-12-31', TRUE);
+
+
+SELECT * FROM EMPLOYEE_DIM;
+
+UPDATE employee_dim
+SET end_date = '2021-10-09', current_flag = FALSE
+WHERE emp_id = 1111 AND current_flag = TRUE;
+
+INSERT INTO employee_dim (emp_id, emp_name, state, effective_date, end_date, current_flag)
+VALUES 
+(1111, 'Tom', 'AZ', '2021-10-09', '9999-12-31', TRUE);
+
+CREATE OR REPLACE STREAM employee_stream ON TABLE employee_dim;
+
+UPDATE employee_dim
+SET end_date = '2021-10-09', current_flag = FALSE
+WHERE emp_id = 1212 AND current_flag = TRUE;
+
+SELECT * FROM EMPLOYEE_STREAM;
+
+
+CREATE OR REPLACE TASK update_employee_dim
+WAREHOUSE = TR_WH
+SCHEDULE = '1 MINUTE'
+AS
+MERGE INTO employee_dim AS target
+USING employee_stream AS source
+ON target.emp_id = source.emp_id AND target.current_flag = TRUE
+WHEN MATCHED THEN
+UPDATE SET target.end_date = CURRENT_DATE, target.current_flag = FALSE
+WHEN NOT MATCHED THEN
+INSERT (emp_id, emp_name, state, effective_date, end_date, current_flag)
+VALUES (source.emp_id, source.emp_name, source.state, CURRENT_DATE, '9999-12-31', TRUE);
+
+ALTER TASK  update_employee_dim RESUME;
+
+USE ROLE ACCOUNTADMIN;
+
+GRANT EXECUTE TASK ON ACCOUNT TO ROLE SYSADMIN;
+
+USE ROLE SYSADMIN;
+
+----------------------------------------------------------------------------------------------
+
+--ACITVITY-2
+
+--Converting JSON to the Snowflake VARIANT data type involves using the PARSE_JSON function. 
+--PARSE_JSON : This function can convert data from JSON format to ARRAY or OBJECT data and store that data directly in a VARIANT value
+
+CREATE OR REPLACE TABLE JSON_TABLE (n NUMBER(2), v VARIANT);
+
+INSERT INTO JSON_TABLE
+  SELECT column1 AS n, PARSE_JSON(column2) AS v
+    FROM VALUES (1, 'null'), 
+                (2, null), 
+                (3, 'true'),
+                (4, '-17'), 
+                (5, '123.12'), 
+                (6, '1.912e2'),
+                (7, '"Om ara pa ca na dhih"  '), 
+                (8, '[-1, 12, 289, 2188, false,]'), 
+                (9, '{ "x" : "abc", "y" : false, "z": 10} ') 
+       AS vals;
+
+SELECT n, v, TYPEOF(v)
+  FROM JSON_TABLE
+  ORDER BY n;
+
+--Insert a JSON object with duplicate keys in a VARIANT value, and specify the d parameter to allow duplicates.
+--A query on the table shows that only the value of the "last duplicate key" was inserted
+
+INSERT INTO JSON_TABLE
+SELECT column1 AS n, PARSE_JSON(column2, 'd') AS v
+  FROM VALUES (10, '{ "a" : "123", "b" : "456", "a": "789"} ')
+     AS vals;
+
+SELECT * FROM JSON_TABLE;
+
+----------------------------------------------------------------------------------------------
+--Activity-3
+
+--Setting up error notifications in Snowflake involves configuring a notification integration with a cloud messaging service (like AWS SNS, Azure Event Grid, or Google Pub/Sub) and associating it with your tasks.
+
+CREATE NOTIFICATION INTEGRATION my_notification_int
+TYPE = QUEUE
+ENABLED = TRUE
+AWS_SNS_TOPIC_ARN = 'arn:aws:sns:us-west-2:123456789012:my_sns_topic'
+AWS_IAM_ROLE_ARN = 'arn:aws:iam::123456789012:role/my_sns_role';
+
+GRANT USAGE ON INTEGRATION my_notification_int TO ROLE SYSADMIN;
+
+
+CREATE TASK my_task
+SCHEDULE = '5 MINUTE'
+ERROR_INTEGRATION = my_notification_int
+AS
+INSERT INTO my_table(ts) VALUES(CURRENT_TIMESTAMP);
+
+EXECUTE TASK my_task;
+
+--Monitor the notifications sent to your cloud messaging service to ensure they are being received correctly.
+
+--NOTIFICATION_HISTORY : This table function can be used to query the history of notifications sent through Snowflake. 
+
+----------------------------------------------------------------------------------------------
+
+--ACTIVITY-4 
+
+--How do you handle sensitive data in Snowflake?
+
+--Handling sensitive data in Snowflake involves several key steps to ensure data security and compliance with regulations.
+--Data masking helps protect sensitive data by obfuscating it for unauthorized users. Snowflake provides dynamic data masking to achieve this.
+
+CREATE OR REPLACE MASKING POLICY mask_ssn AS (val STRING) RETURNS STRING ->
+CASE
+    WHEN CURRENT_ROLE() IN ('PII_ACCESS_ROLE') THEN val
+    ELSE 'XXX-XX-XXXX'
+END;
+
+
+CREATE TABLE employees (
+    emp_id INT,
+    emp_name STRING,
+    ssn STRING
+);
+
+
+
+INSERT INTO employees (emp_id, emp_name, ssn)
+VALUES 
+(1, 'John Doe', '123-45-6789'),
+(2, 'Jane Smith', '987-65-4321');
+
+
+
+ALTER TABLE employees MODIFY COLUMN ssn SET MASKING POLICY mask_ssn;
+
+
+CREATE OR REPLACE ROLE pii_access_role;
+CREATE OR REPLACE ROLE non_pii_access_role;
+
+
+GRANT SELECT ON employees TO ROLE pii_access_role;
+GRANT SELECT ON employees TO ROLE non_pii_access_role;
+
+GRANT USAGE ON DATABASE TRAINING_1 TO ROLE PII_ACCESS_ROLE;
+
+GRANT USAGE ON SCHEMA TR_SCHEMA TO ROLE PII_ACCESS_ROLE;
+
+GRANT USAGE ON WAREHOUSE TR_WH TO ROLE PII_ACCESS_ROLE;
+
+GRANT USAGE ON DATABASE TRAINING_1 TO ROLE NON_PII_ACCESS_ROLE;
+
+GRANT USAGE ON SCHEMA TR_SCHEMA TO ROLE NON_PII_ACCESS_ROLE;
+
+GRANT USAGE ON WAREHOUSE TR_WH TO ROLE NON_PII_ACCESS_ROLE;
+GRANT ROLE pii_access_role TO USER Phaninarina;
+GRANT ROLE non_pii_access_role TO USER Phaninarina;
+
+USE ROLE pii_access_role;
+
+USE WAREHOUSE TR_WH;
+
+SELECT * FROM employees;
+
+USE ROLE NON_PII_ACCESS_ROLE;
+
+----------------------------------------------------------------------------------------------
+--ACTIVITY-5
+
+--Create a Stored Proc for error handling in Snowflake
+--Snowflake Scripting raises an exception if an error occurs while executing a statement.An exception prevents the next lines of code from executing.
+--you can write exception handlers that catch specific types of exceptions declared in that block and in blocks nested inside that block.
+
+CREATE OR REPLACE PROCEDURE sp_raise_exception(var number)
+RETURNS VARCHAR
+LANGUAGE SQL
+AS
+$$
+DECLARE
+  my_sp_exception1 EXCEPTION (-20001, 'Raised user defined exception MY_SP_EXCEPTION1.');
+  my_sp_exception2 EXCEPTION (-20002, 'Raised user defined exception MY_SP_EXCEPTION2.');
+BEGIN
+  IF (var=0) THEN
+    RAISE my_sp_exception1;
+  ELSEIF (var=1) THEN
+    RAISE my_sp_exception2;
+  END IF;
+  RETURN var;
+EXCEPTION
+ WHEN my_sp_exception1 THEN
+    RETURN SQLSTATE||':'||SQLCODE||':'||SQLERRM;
+ WHEN my_sp_exception2 THEN
+    RETURN SQLSTATE||':'||SQLCODE||':'||SQLERRM;
+END;
+$$
+;
+
+CALL sp_raise_exception(0);
+CALL sp_raise_exception(1);
+CALL sp_raise_exception(3);
+
+----------------------------------------------------------------------------------------------
+--ACTIVITY-6
+--Type 1 Slowly Changing Dimensions (SCD) in Snowflake involves updating existing records with new data without maintaining any history.
+
+CREATE OR REPLACE TABLE target_table (
+    id INT,
+    name STRING,
+    address STRING,
+    updated_at TIMESTAMP
+);
+
+INSERT INTO target_table (id, name, address, updated_at)
+VALUES 
+(1, 'John Doe', '123 Elm St', CURRENT_TIMESTAMP),
+(2, 'Jane Smith', '456 Oak St', CURRENT_TIMESTAMP);
+
+SELECT * FROM TARGET_TABLE;
+
+
+CREATE OR REPLACE TABLE staging_table (
+    id INT,
+    name STRING,
+    address STRING,
+    updated_at TIMESTAMP
+);
+
+
+INSERT INTO staging_table (id, name, address, updated_at)
+VALUES 
+(1, 'John Doe', '789 Pine St', CURRENT_TIMESTAMP),
+(3, 'Alice Johnson', '101 Maple St', CURRENT_TIMESTAMP);
+
+SELECT * FROM STAGING_TABLE;
+
+
+MERGE INTO target_table AS t
+USING staging_table AS s
+ON t.id = s.id
+WHEN MATCHED THEN
+    UPDATE SET t.name = s.name, t.address = s.address, t.updated_at = s.updated_at
+WHEN NOT MATCHED THEN
+    INSERT (id, name, address, updated_at)
+    VALUES (s.id, s.name, s.address, s.updated_at);
+
+SELECT * FROM target_table;
+
+
+----------------------------------------------------------------------------------------------
+--ACTIVITY-7
+
+--I have an existing table and I dropped that table, and I created a new table with the same table name as the old one and with different data. Is there any way to get the old table data in Snowflake?
+-- Rename the New Table,Undrop the Old Table
+
+CREATE OR REPLACE TABLE OLD_TABLE
+(ID NUMBER,
+NAME VARCHAR()
+);
+
+INSERT INTO OLD_TABLE (ID,NAME) VALUES(1,'A'),(2,'P'),(3,'S');
+
+DROP TABLE OLD_TABLE;
+
+UNDROP TABLE OLD_TABLE;
+
+CREATE OR REPLACE TABLE OLD_TABLE
+(NAME VARCHAR());
+
+ALTER TABLE OLD_TABLE RENAME TO NEW_TABLE;
+
+SELECT * FROM OLD_TABLE;
+----------------------------------------------------------------------------------------------
+--ACTIVITY-8
+-- If you create temporary tables with the same name as permanent tables, which one will be referenced when queried within the same session?
+
+CREATE TABLE employee_data (
+    id INT,
+    name STRING,
+    address STRING
+);
+
+INSERT INTO EMPLOYEE_DATA (ID,NAME,ADDRESS) VALUES(1,'A','ELR'),(2,'a','ELR');
+
+CREATE TEMPORARY TABLE employee_data (
+    id INT,
+    name STRING,
+    address STRING
+);
+
+INSERT INTO EMPLOYEE_DATA (ID,NAME,ADDRESS) VALUES(3,'B','ELR'),(4,'b','ELR');
+
+SELECT * FROM EMPLOYEE_DATA;
+
+--the SELECT query will reference the temporary table employee_data because it takes precedence within the session
+--Temporary tables take precedence over permanent tables with the same name within the session.
+
+----------------------------------------------------------------------------------------------
+--ACTIVITY-9
+
+--LATERAL FLATTEN is used to transform semi-structured data (like JSON, Avro, Parquet) stored in a VARIANT column into a relational format. This allows you to query nested data structures more easily.
+--LATERAL: This keyword allows the FLATTEN function to access columns from preceding tables in the FROM clause. It essentially means that the FLATTEN function can reference other tables or subqueries that come before it in the query.
+--FLATTEN: This function takes a VARIANT, OBJECT, or ARRAY column and converts it into multiple rows, making it easier to work with nested data.
+
+CREATE OR REPLACE TABLE sales_data (
+    id INT,
+    data VARIANT
+);
+
+
+INSERT INTO sales_data (id, data) 
+SELECT COLUMN1 AS ID,PARSE_JSON(COLUMN2,'d') FROM VALUES
+(1, '{
+    "customer": {"name": "John Doe", "address": "123 Elm St"},
+    "items": [{"product": "Laptop", "price": 1200}, {"product": "Mouse", "price": 25}]
+}'),
+(2,'{
+    "customer": {"name": "Jane Smith", "address": "456 Oak St"},
+    "items": [{"product": "Tablet", "price": 600}, {"product": "Keyboard", "price": 45}]
+}');
+
+SELECT 
+    sales.id,
+    sales.data:customer.name::string AS customer_name,
+    flattened.value:product::string AS product,
+    flattened.value:price::number AS price
+FROM 
+    sales_data AS sales,
+    LATERAL FLATTEN(input => sales.data:items) AS flattened;
+
+
+----------------------------------------------------------------------------------------------
+--ACTIVITY-10
+
+--NVL function in Snowflake is used to replace NULL values with a specified replacement value.
+
+CREATE OR REPLACE TABLE NVL_TABLE
+(ID NUMBER,
+NAME VARCHAR,
+SALARY NUMBER);
+
+INSERT INTO NVL_TABLE (ID,NAME,SALARY) VALUES(1,'A',90000000),(2,'P',999999999999999),(3,'S',900000000000),(4,'',NULL);
+
+
+SELECT * FROM NVL_TABLE;
+
+SELECT ID,NVL(SALARY,0) AS SALARY FROM NVL_TABLE;
+
+--The primary purpose of the TO_TIMESTAMP function is to convert input expressions (such as strings, numbers, dates, and variants) into timestamp values.
+
+SELECT TO_TIMESTAMP('2025-04-09 10:00:00', 'YYYY-MM-DD HH12:MI:SS') AS timestamp_value;
+
+--DECODE function in Snowflake is used to implement conditional logic in queries. It allows you to replace a value based on specified conditions, similar to a simple CASE statement.
+--compare an expression to a set of search expressions and return the corresponding result expression when a match is found.
+
+CREATE OR REPLACE TABLE DETAILS
+(FIRST_NAME VARCHAR,
+LAST_NAME VARCHAR);
+
+INSERT INTO DETAILS(FIRST_NAME,LAST_NAME) VALUES ('John','Doe') ,('Jane','Smith') ,('Alice','Johnson');
+
+SELECT 
+    first_name,
+    last_name,
+    DECODE(last_name, 'Doe', 'Anonymous', 'Smith', 'Unknown', 'Known') AS status
+FROM 
+    Details;
+
+

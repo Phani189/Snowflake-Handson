@@ -1,0 +1,1048 @@
+--ACTIVITY-1
+--loading data task form any location extenal stage or internal anything it is whatever it is.but i dont anything about the csv files that need to be loaded.so in this case table creation without knowing columns is difficult.
+
+CREATE OR REPLACE DATABASE TRAINING_2;
+
+
+CREATE OR REPLACE SCHEMA TR_SCHEMA;
+
+CREATE OR REPLACE STAGE TR_STAGE2
+FILE_FORMAT = (TYPE = 'CSV' SKIP_HEADER=1)     
+DIRECTORY = (ENABLE = TRUE);
+
+CREATE OR REPLACE FILE FORMAT TR_FF
+TYPE='CSV'
+SKIP_HEADER=1;
+
+
+CREATE OR REPLACE TABLE my_table USING TEMPLATE (
+    SELECT ARRAY_AGG(OBJECT_CONSTRUCT(*)) WITHIN GROUP (ORDER BY 1)
+    FROM TABLE(INFER_SCHEMA(
+        LOCATION => '@"TRAINING_2"."TR_SCHEMA"."TR_STAGE2"/Customer.csv',
+        FILE_FORMAT => 'TR_FF'
+        
+    ))
+);
+
+
+CREATE OR REPLACE TABLE AUTO_TABLE AS
+SELECT $1 AS CUSTOMER_ID,$2 AS CUSTOMER_NAME,$3,$4,$5 FROM '@"TRAINING_2"."TR_SCHEMA"."TR_STAGE2"/Customer.csv';
+
+CREATE OR REPLACE TEMPORARY TABLE temp_table
+AS  SELECT * FROM '@"TRAINING_2"."TR_SCHEMA"."TR_STAGE2"/Customer.csv';
+
+SELECT * FROM MY_TABLE;
+
+--CREATE OR REPLACE TABLE my_table: Creates or replaces the table my_table.
+--USING TEMPLATE: Uses a template to define the table schema.
+--SELECT ARRAY_AGG(OBJECT_CONSTRUCT(*)) WITHIN GROUP (ORDER BY 1): Aggregates all rows into an array of objects.
+--FROM TABLE(INFER_SCHEMA(...)): Infers the schema of the CSV file and returns a table with the inferred schema.
+--INFER_SCHEMA: Infers the schema of the file based on its content and specified file format.
+-----------------------------------------------------------------------------------------------
+
+--ACTIVITY-2
+
+--Imagine you have a large sales table and frequently run queries to calculate total sales by region and product category.How would you do that.
+--you can create a materialized view to store the pre-computed results
+--A materialized view is a pre-computed data set derived from a query specification and stored for later use. Because the data is pre-computed, querying a materialized view is faster than executing a query against the base table of the view.
+--used for repeated query patterns,Query results contain a small number of rows and/or columns relative to the base table.
+--Query results require significant processing, such as analysis of semi-structured data or aggregates that take a long time to calculate.
+--The query is on an external table, which might have slower performance compared to querying native database table.
+
+CREATE  OR REPLACE MATERIALIZED VIEW my_materialized_view AS
+SELECT ID,NAME, COUNT(ID) AS total
+FROM TRAINING_1.TR_SCHEMA.TARGET_TABLE
+GROUP BY ID,NAME;
+
+SELECT * FROM MY_MATERIALIZED_VIEW;
+-----------------------------------------------------------------------------------------------
+--ACTIVITY-3
+
+--Imagine you are building a reporting dashboard for a sales team. The team wants to generate reports based on various criteria that can change frequently, such as date ranges, product categories, or regions.
+--The TO_QUERY function takes a SQL string (with optional parameters) as input and executes it.
+
+-- Assume these variables are set based on user input
+
+SET product_category = 'Electronics';
+SET start_date = '2025-01-01';
+SET end_date = '2025-03-31';
+
+-- Construct the dynamic SQL query
+SET sql_query = '
+    SELECT product_category, SUM(sales_amount) AS total_sales
+    FROM sales
+    WHERE product_category = ''' || :product_category || '''
+    AND sale_date BETWEEN ''' || :start_date || ''' AND ''' || :end_date || '''
+    GROUP BY product_category';
+
+-- Execute the dynamic SQL query using TO_QUERY
+SELECT * FROM TABLE(TO_QUERY(:sql_query));
+
+-----------------------------------------------------------------------------------------------------------------------------------
+
+-- ACTIVITY-3
+--How Can I Automatically Update Snowflake with New Columns from CSV Files in S3?,I have CSV files in Amazon S3 that occasionally receive new columns. How can I automatically add these new columns to my Snowflake database when they are added to the CSV files?
+--Table Schema Evolution:allows Snowflake tables to automatically adapt to changes in the structure of incoming data. 
+--Automatically adding new columns.,Automatically dropping the NOT NULL constraint from columns missing in new data files.
+--Imagine you have a set of Parquet files in an S3 bucket, and you want to load them into a Snowflake table that can automatically adapt to new columns added over time.
+
+CREATE OR REPLACE STORAGE INTEGRATION my_s3_integration
+TYPE = EXTERNAL_STAGE
+STORAGE_PROVIDER = 'S3'
+STORAGE_AWS_ROLE_ARN = 'arn:aws:iam::123456789012:role/my-snowflake-role'
+STORAGE_ALLOWED_LOCATIONS = ('s3://my-bucket/path/');
+
+
+CREATE OR REPLACE STAGE mystage
+URL = 's3://my-bucket/path/'
+STORAGE_INTEGRATION = my_s3_integration;
+
+CREATE OR REPLACE FILE FORMAT my_parquet_format
+TYPE = 'PARQUET';
+
+CREATE TABLE my_table
+ENABLE_SCHEMA_EVOLUTION = TRUE;
+
+COPY INTO my_table
+FROM @mystage
+FILE_FORMAT = (FORMAT_NAME = 'my_parquet_format')
+MATCH_BY_COLUMN_NAME = CASE_INSENSITIVE;
+
+--This feature is enabled by setting the ENABLE_SCHEMA_EVOLUTION parameter to TRUE and using the MATCH_BY_COLUMN_NAME option in the COPY INTO statement.
+
+--Snowflake document solution
+
+CREATE OR REPLACE TABLE t1
+  USING TEMPLATE (
+    SELECT ARRAY_AGG(object_construct(*))
+      FROM TABLE(
+        INFER_SCHEMA(
+          LOCATION=>'@mystage/file1.parquet',
+          FILE_FORMAT=>'my_parquet_format'
+        )
+      ));
+
+
+GRANT EVOLVE SCHEMA ON TABLE d1.s1.t1 TO ROLE r1;
+-- Enable schema evolution on the table.
+-- Note that the ENABLE_SCHEMA_EVOLUTION property can also be set at table creation with CREATE OR REPLACE TABLE
+ALTER TABLE t1 SET ENABLE_SCHEMA_EVOLUTION = TRUE;
+
+-- Load a new set of data into the table.
+-- The new data drops the NOT NULL constraint on the col2 column.
+-- The new data adds the new column col4.
+COPY INTO t1
+  FROM @mystage/file2.parquet
+  FILE_FORMAT = (type=parquet)
+  MATCH_BY_COLUMN_NAME = CASE_INSENSITIVE;
+
+--My Handson: 
+CREATE OR REPLACE TABLE AUTOMATIC_COL
+(
+ID NUMBER,
+NAME VARCHAR()
+);
+
+CREATE OR REPLACE FILE FORMAT my_csv_format
+TYPE = 'CSV'
+FIELD_DELIMITER = ','
+PARSE_HEADER = TRUE
+error_on_column_count_mismatch=false;
+
+CREATE OR REPLACE STAGE TR2_STAGE
+FILE_FORMAT= my_csv_format;
+
+ALTER TABLE AUTOMATIC_COL SET ENABLE_SCHEMA_EVOLUTION = TRUE;
+
+COPY INTO AUTOMATIC_COL
+FROM '@"TRAINING_2"."TR_SCHEMA"."TR2_STAGE"/Autocol.csv'
+MATCH_BY_COLUMN_NAME = CASE_INSENSITIVE;
+
+SELECT * FROM AUTOMATIC_COL;
+
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+
+--ACIVITY-4
+--what you can use so that a particular user not able to see some rows in a table?
+--Row-Level Security is a security mechanism that restricts access to specific rows in a database table based on the permissions of the currently logged-in user.
+--A Row Access Policy is a schema-level object in Snowflake that defines which rows in a table or view can be accessed based on certain conditions.
+
+use role SYSADMIN;
+
+create or replace database analytics;
+
+create or replace schema analytics.hr;
+
+create or replace table analytics.hr.employees(
+    employee_id number,
+    first_name varchar(50),
+    last_name varchar(50),
+    email varchar(50),
+    hire_date date,
+    country varchar(50)
+);
+
+INSERT INTO analytics.hr.employees(employee_id,first_name,last_name,email,hire_date,country) VALUES
+(100,'Steven','King','SKING@outlook.com','2013-06-17','US'),
+(101,'Neena','Kochhar','NKOCHHAR@outlook.com','2015-09-21','US'),
+(102,'Lex','De Haan','LDEHAAN@outlook.com','2011-01-13','US'),
+(103,'Alexander','Hunold','AHUNOLD@outlook.com','2016-01-03','UK'),
+(104,'Bruce','Ernst','BERNST@outlook.com','2017-05-21','UK'),
+(105,'David','Austin','DAUSTIN@outlook.com','2015-06-25','UK'),
+(106,'Valli','Pataballa','VPATABAL@outlook.com','2016-02-05','CA'),
+(107,'Diana','Lorentz','DLORENTZ@outlook.com','2017-02-07','CA'),
+(108,'Nancy','Greenberg','NGREENBE@outlook.com','2012-08-17','CA')
+;
+
+
+
+use role SYSADMIN;
+
+create or replace table analytics.hr.role_mapping(
+    country varchar(50),
+    role_name varchar(50)
+);
+
+INSERT INTO analytics.hr.role_mapping(country, role_name) VALUES
+('US','DATA_ANALYST_ROLE_US'),
+('UK','DATA_ANALYST_ROLE_UK'),
+('CA','DATA_ANALYST_ROLE_CA')
+;
+
+use role SYSADMIN;
+
+create or replace row access policy analytics.hr.country_role_policy as (country_name varchar) returns boolean ->
+  'SYSADMIN' = current_role()
+      or exists (
+            select 1 from role_mapping
+              where role_name = current_role()
+                and country = country_name
+          )
+;
+
+use role SYSADMIN;
+
+alter table analytics.hr.employees 
+add row access policy analytics.hr.country_role_policy on (country);
+
+use role SECURITYADMIN;
+
+create or replace role DATA_ANALYST_ROLE_US;
+create or replace role DATA_ANALYST_ROLE_UK;
+create or replace role DATA_ANALYST_ROLE_CA;
+
+use role SECURITYADMIN;
+
+grant role DATA_ANALYST_ROLE_US to role SYSADMIN;
+grant role DATA_ANALYST_ROLE_UK to role SYSADMIN;
+grant role DATA_ANALYST_ROLE_CA to role SYSADMIN;
+
+use role SYSADMIN;
+
+grant usage on database analytics to role DATA_ANALYST_ROLE_US;
+grant usage on schema analytics.hr to role DATA_ANALYST_ROLE_US;
+grant select on all tables in schema analytics.hr to role DATA_ANALYST_ROLE_US;
+
+grant usage on database analytics to role DATA_ANALYST_ROLE_UK;
+grant usage on schema analytics.hr to role DATA_ANALYST_ROLE_UK;
+grant select on all tables in schema analytics.hr to role DATA_ANALYST_ROLE_UK;
+
+grant usage on database analytics to role DATA_ANALYST_ROLE_CA;
+grant usage on schema analytics.hr to role DATA_ANALYST_ROLE_CA;
+grant select on all tables in schema analytics.hr to role DATA_ANALYST_ROLE_CA;
+
+
+
+use role SYSADMIN;
+
+grant usage on database analytics to role DATA_ANALYST_ROLE_US;
+grant usage on schema analytics.hr to role DATA_ANALYST_ROLE_US;
+grant select on all tables in schema analytics.hr to role DATA_ANALYST_ROLE_US;
+
+grant usage on database analytics to role DATA_ANALYST_ROLE_UK;
+grant usage on schema analytics.hr to role DATA_ANALYST_ROLE_UK;
+grant select on all tables in schema analytics.hr to role DATA_ANALYST_ROLE_UK;
+
+grant usage on database analytics to role DATA_ANALYST_ROLE_CA;
+grant usage on schema analytics.hr to role DATA_ANALYST_ROLE_CA;
+grant select on all tables in schema analytics.hr to role DATA_ANALYST_ROLE_CA;
+
+use role SECURITYADMIN;
+
+grant role DATA_ANALYST_ROLE_US to user Phaninarina;
+grant role DATA_ANALYST_ROLE_UK to user Phaninarina;
+grant role DATA_ANALYST_ROLE_CA to user Phaninarina;
+use role ACCOUNTADMIN;
+
+grant usage on warehouse compute_wh to role DATA_ANALYST_ROLE_US;
+grant usage on warehouse compute_wh to role DATA_ANALYST_ROLE_UK;
+grant usage on warehouse compute_wh to role DATA_ANALYST_ROLE_CA;
+
+USE ROLE DATA_ANALYST_ROLE_US;
+
+SELECT * FROM employees;
+
+USE ROLE  DATA_ANALYST_ROLE_UK;
+
+SELECT * FROM EMPLOYEES;
+----------------------------------------------------------------------------------------------
+
+--ACITVITY-5
+-- WORKING ON CLONING
+
+CREATE OR REPLACE TABLE CLONE_TAB
+(ID NUMBER,
+NAME VARCHAR(),
+AGE NUMBER
+);
+
+INSERT INTO CLONE_TAB (ID,NAME,AGE) VALUES (1,'A',22),(2,'P',24),
+(3,'S',21),(4,'T',20),(5,'B',22),(6,'C',23);
+
+CREATE OR REPLACE TABLE CLONED_TAB
+CLONE CLONE_TAB;
+
+
+SELECT * FROM CLONED_TAB;
+
+UPDATE CLONED_TAB SET AGE=22
+WHERE ID=6;
+
+SELECT * FROM CLONE_TAB;
+----------------------------------------------------------------------------------------------
+--ACTIVITY-6
+--SECURE VIEW:A secure view in Snowflake is a type of view that provides an additional layer of security by preventing unauthorized users from accessing the underlying data directly.
+
+CREATE OR REPLACE TABLE S_TAB
+(
+ID NUMBER,
+NAME VARCHAR(),
+AGE NUMBER
+ );
+
+INSERT INTO S_TAB(ID,NAME,AGE) VALUES (1,'A',22),(2,'P',24),
+(3,'S',21),(4,'T',20),(5,'B',22),(6,'C',23);
+
+CREATE OR REPLACE SECURE VIEW my_secure_view AS
+SELECT ID,NAME 
+FROM S_TAB;
+
+SELECT * FROM MY_SECURE_VIEW;
+----------------------------------------------------------------------------------------------
+
+CREATE TABLE employees1 (
+    employee_id INT,
+    name STRING,
+    department STRING,
+    salary FLOAT,
+    hire_date DATE
+);
+
+INSERT INTO employees1 (employee_id, name, department, salary, hire_date) VALUES
+(1, 'Alice', 'Sales', 60000, '2023-01-15'),
+(2, 'Bob', 'Engineering', 80000, '2023-02-20'),
+(3, 'Charlie', 'HR', 50000, '2023-03-10'),
+(4, 'David', 'Sales', 70000, '2023-04-05'),
+(5, 'Eve', 'Engineering', 90000, '2023-05-01');
+
+
+
+SELECT *
+FROM employees1
+CHANGES (INFORMATION => DEFAULT)
+AT (TIMESTAMP => '2025-04-15 02:15:00.623 -0700');
+
+SELECT CURRENT_TIMESTAMP;
+INSERT INTO employees1 (employee_id, name, department, salary, hire_date) VALUES
+(6, 'Phani', 'Engineering', 1000000, '2023-05-01');
+
+
+CREATE OR REPLACE TABLE employees 
+(title VARCHAR, 
+employee_ID INTEGER, 
+manager_ID INTEGER);
+
+
+INSERT INTO employees (title, employee_ID, manager_ID) VALUES
+    ('President', 1, NULL),  -- The President has no manager.
+        ('Vice President Engineering', 10, 1),
+            ('Programmer', 100, 10),
+            ('QA Engineer', 101, 10),
+        ('Vice President HR', 20, 1),
+            ('Health Insurance Analyst', 200, 20);
+
+
+--CONNECT BY.
+--Joins a table to itself to process hierarchical data in the table. The CONNECT BY subclause of the FROM clause iterates to process the data.
+
+SELECT employee_ID, manager_ID, title
+  FROM employees
+    START WITH title = 'President'
+    CONNECT BY
+      manager_ID = PRIOR employee_id
+  ORDER BY employee_ID;
+
+--An ASOF JOIN operation combines rows from two tables based on timestamp values that follow each other, precede each other, or match exactly. 
+
+CREATE OR REPLACE TABLE left_table (
+  c1 VARCHAR(1),
+  c2 TINYINT,
+  c3 TIME,
+  c4 NUMBER(3,2)
+);
+
+CREATE OR REPLACE TABLE right_table (
+  c1 VARCHAR(1),
+  c2 TINYINT,
+  c3 TIME,
+  c4 NUMBER(3,2)
+);
+
+INSERT INTO left_table VALUES
+  ('A',1,'09:15:00',3.21),
+  ('A',2,'09:16:00',3.22),
+  ('B',1,'09:17:00',3.23),
+  ('B',2,'09:18:00',4.23);
+
+INSERT INTO right_table VALUES
+  ('A',1,'09:14:00',3.19),
+  ('B',1,'09:16:00',3.04);
+
+SELECT *
+  FROM left_table l ASOF JOIN right_table r
+    MATCH_CONDITION(l.c3>=r.c3)
+    ON(l.c1=r.c1 and l.c2=r.c2)
+  ORDER BY l.c1, l.c2;
+
+-------------------------------------------------------------------------------------------------------------------------------------ACTIVITY-7
+--INCLUDE_METADATA property in the COPY INTO command in Snowflake allows you to map metadata fields from the source files to columns in the target table.
+
+
+CREATE OR REPLACE TABLE my_table (
+id INT,
+name STRING,
+filename_col STRING,
+file_row_number_col INT,
+file_last_modified_col TIMESTAMP
+);
+
+
+
+CREATE OR REPLACE FILE FORMAT my_csv_format
+TYPE = 'CSV'
+FIELD_DELIMITER = ','
+PARSE_HEADER = TRUE
+error_on_column_count_mismatch=false;
+
+
+
+CREATE OR REPLACE STAGE my_stage;
+
+
+
+COPY INTO my_table
+FROM @my_stage
+FILE_FORMAT = (FORMAT_NAME = 'my_csv_format')
+INCLUDE_METADATA = (
+filename_col = METADATA$FILENAME,
+file_row_number_col = METADATA$FILE_ROW_NUMBER,
+file_last_modified_col = METADATA$FILE_LAST_MODIFIED
+)
+MATCH_BY_COLUMN_NAME = CASE_INSENSITIVE;
+
+select * from my_table;
+
+
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+--To find the base table used to create all views in a particular schema or to find all dependent child objects in Snowflake, you can use the OBJECT_DEPENDENCIES view in the ACCOUNT_USAGE schema
+
+
+CREATE OR REPLACE TABLE EX
+(
+ID NUMBER,
+NAME VARCHAR,
+AGE NUMBER,
+SALARY NUMBER
+);
+
+
+INSERT INTO EX(ID,NAME,AGE,SALARY) VALUES (1,'A',22,40000),(2,'P',24,85000),(3,'S',21,28000);
+
+
+CREATE OR REPLACE VIEW VIEW_EX
+AS SELECT ID,NAME FROM EX;
+
+SELECT * FROM VIEW_EX;
+
+SELECT 
+    REFERENCED_OBJECT_NAME AS base_table,
+    REFERENCING_OBJECT_NAME AS dependent_object,
+    REFERENCING_OBJECT_DOMAIN AS object_type
+FROM 
+    SNOWFLAKE.ACCOUNT_USAGE.OBJECT_DEPENDENCIES
+WHERE 
+    REFERENCED_SCHEMA = 'HR'
+    AND REFERENCED_OBJECT_DOMAIN = 'EX';
+
+
+CREATE OR REPLACE TABLE my_table (
+id INT,
+name STRING,
+value STRING
+);
+
+
+
+CREATE OR REPLACE VIEW my_view AS
+SELECT id, name, value
+FROM my_table;
+
+
+SELECT 
+    REFERENCED_OBJECT_NAME AS base_table,
+    REFERENCING_OBJECT_NAME AS dependent_object,
+    REFERENCING_OBJECT_DOMAIN AS object_type
+FROM 
+    SNOWFLAKE.ACCOUNT_USAGE.OBJECT_DEPENDENCIES
+WHERE 
+    REFERENCED_SCHEMA = 'HR'
+    AND REFERENCED_OBJECT_DOMAIN = 'TABLE';
+
+
+SELECT 
+    TABLE_NAME AS view_name,
+    VIEW_DEFINITION
+FROM 
+    INFORMATION_SCHEMA.VIEWS
+WHERE 
+    VIEW_DEFINITION ILIKE '%my_table%';
+
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+--QAS-Query Acceleration Service
+--Designed to improve the performance of certain types of queries by offloading portions of the query processing to serverless compute resources. This can help reduce the impact of resource-intensive queries on your virtual warehouse, leading to overall better performance.
+
+
+CREATE OR REPLACE WAREHOUSE my_warehouse
+WITH WAREHOUSE_SIZE = 'LARGE'
+QUERY_ACCELERATION_MAX_SCALE_FACTOR = 10;
+
+
+ALTER WAREHOUSE my_warehouse
+SET QUERY_ACCELERATION_MAX_SCALE_FACTOR = 10;
+
+
+SELECT PARSE_JSON(system$estimate_query_acceleration('01bbbf88-0000-f23c-0009-1232000a305e'));
+
+
+SELECT query_id, eligible_query_acceleration_time
+FROM SNOWFLAKE.ACCOUNT_USAGE.QUERY_ACCELERATION_ELIGIBLE
+WHERE start_time > DATEADD('day', -7, CURRENT_TIMESTAMP())
+ORDER BY eligible_query_acceleration_time DESC;
+
+
+SELECT d.d_year AS "Year", i.i_brand_id AS "Brand ID", i.i_brand AS "Brand", SUM(ss_net_profit) AS "Profit"
+FROM snowflake_sample_data.tpcds_sf10tcl.date_dim d
+JOIN snowflake_sample_data.tpcds_sf10tcl.store_sales s ON d.d_date_sk = s.ss_sold_date_sk
+JOIN snowflake_sample_data.tpcds_sf10tcl.item i ON s.ss_item_sk = i.i_item_sk
+WHERE i.i_manufact_id = 938 AND d.d_moy = 12
+GROUP BY d.d_year, i.i_brand, i.i_brand_id
+ORDER BY 1, 4, 2
+LIMIT 200;
+
+-----------------------------------------------------------------------------------------------------------------------------------
+
+--CLUSTERING-SELECT COLUMN WITH HIGH CARDINALITY WHICH UPGRADES THE PERFORMANCE OF THE QUERY
+
+
+CREATE OR REPLACE TABLE CLUSTER_TABLE
+(
+A NUMBER,
+B VARCHAR(),
+C NUMBER,
+D VARCHAR()
+)
+CLUSTER BY(D);
+
+// Step-1
+// Create a table having no cluster key
+create or replace table t1_no_cluster (
+o_orderkey number(38,0),
+o_custkey number(38,0),
+o_orderstatus varchar(1),
+o_totalprice number(12,2),
+o_orderdate date,
+o_orderpriority varchar(15),
+o_clerk varchar(15),
+o_shippriority number(38,0),
+o_comment varchar(79)
+);
+insert into t1_no_cluster select * from SNOWFLAKE_SAMPLE_DATA.TPCH_SF1000.ORDERS limit 500000000; 
+
+// table t2 having order date as cluster key
+create or replace table t2_order_dt (
+o_orderkey number(38,0),
+o_custkey number(38,0),
+o_orderstatus varchar(1),
+o_totalprice number(12,2),
+o_orderdate date,
+o_orderpriority varchar(15),
+o_clerk varchar(15),
+o_shippriority number(38,0),
+o_comment varchar(79)
+)
+cluster by (o_orderdate);
+    
+insert into t2_order_dt select * from SNOWFLAKE_SAMPLE_DATA.TPCH_SF1000.ORDERS limit 500000000; 
+    
+
+
+// create at table having order priority as cluster key
+create or replace table t3_order_priority (
+o_orderkey number(38,0),
+o_custkey number(38,0),
+o_orderstatus varchar(1),
+o_totalprice number(12,2),
+o_orderdate date,
+o_orderpriority varchar(15),
+o_clerk varchar(15),
+o_shippriority number(38,0),
+o_comment varchar(79)
+)
+cluster by (o_orderpriority);
+insert into t3_order_priority select * from SNOWFLAKE_SAMPLE_DATA.TPCH_SF1000.ORDERS limit 500000000; 
+    
+// Step-2
+//let me populat data and here I am fast forwarding it 
+//as populating 5M in each table taks sometime..
+    
+//Step-3
+// lets see the table and associated cluster keys
+show tables like 't%_%_';
+    
+//Step-4
+// lets see the record count
+select count(*) from t1_no_cluster;
+select count(*) from t2_order_dt;
+select count(*) from t3_order_priority;
+    
+
+//Step-5
+// now run a query against each table and see the behaviour
+// we will use the timestamp as field so it does not use the cache
+// you can also disable the catch using parameter setting at session level.
+    
+// we will also chose a different warehouse of same size...
+
+
+
+
+
+
+
+
+select system$clustering_depth('t1_no_cluster');
+select system$clustering_information('t2_order_dt', '(o_orderdate)');
+
+--CLUSTER BY KEY IS NOT SUPPORTED FOR EXTERNAL TABLES.ONLY PARTITION KEY IS SUPPORTED.
+---------------------------------------------------------------------------------------------------------------------------------
+--VIRTUAL WAREHOUSE
+
+
+
+----------------------------------------------------------------------------------------------------------------------------------
+--JSON DATA
+
+create or replace transient table json_tbl(
+    json_col variant
+);
+
+desc table json_tbl;
+
+insert into json_tbl (json_col)
+select parse_json(Column1) from values 
+('{"firstName":"Name-1", "empid":1001}'),
+('{"firstName":"Name-2", "empid":1002}'),
+('{"firstName":"Name-3", "empid":1003}'),
+('{"firstName":"Name-4", "empid":1004}'),
+('{"firstName":"Name-5", "empid":1005}')
+;
+
+
+delete from json_tbl;
+insert into json_tbl(json_col)
+select parse_json(
+  '{
+    "employee": {
+      "name": "John",
+      "age": 30,
+      "height_in_ft": 5.11,
+      "married": true,
+      "has_kids": false,
+      "stock_options": null,
+      "phone": [
+        "+1 123-456-7890",
+        "+1 098-765-4321"
+      ],
+      "Address": {
+        "street": "4132 Grant Street",
+        "city": "Rockville",
+        "State": "Minnesota"
+      }
+    }
+  }');
+
+create or replace transient table employee_tbl(
+    emp_json variant
+);
+
+-- let me insert one single record
+insert into employee_tbl(emp_json)
+select parse_json(
+  '{
+      "name": "John",
+      "age": 30,
+      "height_in_ft": 5.11,
+      "married": true,
+      "has_kids": false,
+      "stock_options": null
+    }');
+
+-- lets run the select sql
+select * from employee_tbl;
+
+  
+  select 
+    emp_json:name,
+    emp_json:"age",
+    emp_json:height_in_ft,
+    emp_json:married,
+    emp_json:has_kids,
+    emp_json:stock_options
+from employee_tbl;
+
+
+
+select 
+    typeof(emp_json:name) as name,
+    typeof(emp_json:age) as age,
+    typeof(emp_json:height_in_ft) as height,
+    typeof(emp_json:married) as is_married,
+    typeof(emp_json:has_kids) as has_kids,
+    typeof(emp_json:stock_options) as stock_options
+from employee_tbl;
+
+
+insert into employee_tbl(emp_json)
+select parse_json(
+  '{
+    "employee": {
+      "name": "John",
+      "age": 30,
+      "height_in_ft": 5.11,
+      "married": true,
+      "has_kids": false,
+      "stock_options": null,
+      "phone": [
+        "+1 123-456-7890",
+        "+1 098-765-4321"
+      ],
+      "Address": {
+        "street": "3621 McDonald Avenue",
+        "city": "Orlando",
+        "State": "Florida"
+      }
+    }
+  }');
+  
+select * from employee_tbl;
+  
+select 
+    emp_json:employee:name::string as name,
+    emp_json:employee.age as age,
+    emp_json:employee.height_in_ft as height,
+    emp_json:employee.married as is_married,
+    emp_json:employee.has_kids as has_kids,
+    emp_json:employee:stock_options as stock_options,
+    typeof(emp_json:employee.phone) as all_phone_type,
+    ARRAY_SIZE(emp_json:employee.phone) as how_many_phone,
+    emp_json:employee.phone[0] as work_phone,
+    emp_json:employee.phone[1] as office_phone,
+    typeof(emp_json:employee:Address) as address_type,
+    emp_json:employee:Address:street as street,
+    emp_json:employee.Address:city as city,
+    emp_json:employee.Address.State as state
+from employee_tbl; 
+
+
+
+
+
+
+
+
+----------------------------------------------------------------------------------------------------------------------------------
+--CHANGES METHOD
+
+CREATE OR REPLACE TABLE t1 (
+   id number(8) NOT NULL,
+   c1 varchar(255) default NULL
+ );
+
+-- Enable change tracking on the table.
+ ALTER TABLE t1 SET CHANGE_TRACKING = TRUE;
+
+ -- Initialize a session variable for the current timestamp.
+ SET ts1 = (SELECT CURRENT_TIMESTAMP());
+
+ INSERT INTO t1 (id,c1)
+ VALUES
+ (1,'red'),
+ (2,'blue'),
+ (3,'green');
+
+ DELETE FROM t1 WHERE id = 1;
+
+ UPDATE t1 SET c1 = 'purple' WHERE id = 2;
+
+ -- Query the change tracking metadata in the table during the interval from $ts1 to the current time.
+ -- Return the full delta of the changes.
+ SELECT *
+ FROM t1
+   CHANGES(INFORMATION => DEFAULT)
+   AT(TIMESTAMP => $ts1);
+
+
+ -- Query the change tracking metadata in the table during the interval from $ts1 to the current time.
+ -- Return the append-only changes.
+ SELECT *
+ FROM t1
+   CHANGES(INFORMATION => APPEND_ONLY)
+   AT(TIMESTAMP => $ts1);
+----------------------------------------------------------------------------------------------------------------------------------
+--LATERAL
+
+CREATE OR REPLACE TABLE departments (department_id INTEGER, name VARCHAR);
+CREATE OR REPLACE TABLE employees (employee_ID INTEGER, last_name VARCHAR,
+  department_ID INTEGER, project_names ARRAY);
+
+INSERT INTO departments (department_ID, name) VALUES
+  (1, 'Engineering'),
+  (2, 'Support');
+INSERT INTO employees (employee_ID, last_name, department_ID) VALUES
+  (101, 'Richards', 1),
+  (102, 'Paulson',  1),
+  (103, 'Johnson',  2);
+
+
+SELECT *
+  FROM departments AS d,
+    LATERAL (SELECT * FROM employees AS e WHERE e.department_ID = d.department_ID) AS iv2
+  ORDER BY employee_ID;
+
+
+SELECT * FROM DEPARTMENTS WHERE COLUMN NAME NOT LIKE '%name%';
+
+
+SELECT *  ILIKE '%name%'
+FROM DEPARTMENTS;
+
+-----------------------------------------------------------------------------------------------------------------------------------
+
+--PIVOT
+--Rotates a table by turning the unique values from one column in the input expression into multiple columns and aggregating results where required on any remaining column values.
+
+
+CREATE OR REPLACE TABLE quarterly_sales(
+  empid INT,
+  amount INT,
+  quarter TEXT)
+  AS SELECT * FROM VALUES
+    (1, 10000, '2023_Q1'),
+    (1, 400, '2023_Q1'),
+    (2, 4500, '2023_Q1'),
+    (2, 35000, '2023_Q1'),
+    (1, 5000, '2023_Q2'),
+    (1, 3000, '2023_Q2'),
+    (2, 200, '2023_Q2'),
+    (2, 90500, '2023_Q2'),
+    (1, 6000, '2023_Q3'),
+    (1, 5000, '2023_Q3'),
+    (2, 2500, '2023_Q3'),
+    (2, 9500, '2023_Q3'),
+    (3, 2700, '2023_Q3'),
+    (1, 8000, '2023_Q4'),
+    (1, 10000, '2023_Q4'),
+    (2, 800, '2023_Q4'),
+    (2, 4500, '2023_Q4'),
+    (3, 2700, '2023_Q4'),
+    (3, 16000, '2023_Q4'),
+    (3, 10200, '2023_Q4');
+
+SELECT *
+  FROM quarterly_sales
+    PIVOT(SUM(amount) FOR quarter IN (ANY ORDER BY quarter))
+  ORDER BY empid;
+
+CREATE OR REPLACE TABLE sales_data (
+  empid INT,
+  amount INT,
+  quarter TEXT,
+  region TEXT
+);
+
+INSERT INTO sales_data (empid, amount, quarter, region) VALUES
+  (1, 10000, '2023_Q1', 'North'),
+  (1, 400, '2023_Q1', 'South'),
+  (2, 4500, '2023_Q1', 'East'),
+  (2, 35000, '2023_Q1', 'West'),
+  (1, 5000, '2023_Q2', 'North'),
+  (1, 3000, '2023_Q2', 'South'),
+  (2, 200, '2023_Q2', 'East'),
+  (2, 90500, '2023_Q2', 'West');
+
+CREATE OR REPLACE VIEW combined_sales_data AS
+SELECT empid, 
+       amount, 
+       CONCAT(quarter, '_', region) AS quarter_region
+  FROM sales_data;
+
+SELECT *
+  FROM combined_sales_data
+  PIVOT(SUM(amount) FOR quarter_region IN ('2023_Q1_North', '2023_Q1_South', '2023_Q1_East', '2023_Q1_West', '2023_Q2_North', '2023_Q2_South', '2023_Q2_East', '2023_Q2_West'))
+  ORDER BY empid;
+
+
+SELECT *
+  FROM (
+    SELECT empid, 
+           amount, 
+           CONCAT(quarter, '_', region) AS quarter_region
+      FROM sales_data
+  ) AS combined_sales_data
+  PIVOT(SUM(amount) FOR quarter_region IN (any order by quarter_region))
+  ORDER BY empid;
+
+  SELECT *
+  FROM quarterly_sales
+    PIVOT(SUM(amount) FOR quarter IN (ANY ORDER BY quarter)
+      DEFAULT ON NULL (0))
+  ORDER BY empid;
+
+
+-----------------------------------------------------------------------------------------------------------------------------------
+--UNPIVOT
+--Rotates a table by transforming columns into rows. UNPIVOT is a relational operator that accepts two columns (from a table or subquery), along with a list of columns, and generates a row for each column specified in the list.
+
+
+CREATE OR REPLACE TABLE monthly_sales(
+  empid INT,
+  dept TEXT,
+  jan INT,
+  feb INT,
+  mar INT,
+  apr INT);
+
+INSERT INTO monthly_sales VALUES
+  (1, 'electronics', 100, 200, 300, 100),
+  (2, 'clothes', 100, 300, 150, 200),
+  (3, 'cars', 200, 400, 100, 50),
+  (4, 'appliances', 100, NULL, 100, 50);
+
+SELECT * FROM monthly_sales;
+
+SELECT *
+  FROM monthly_sales
+    UNPIVOT (sales FOR month IN (jan, feb, mar, apr))
+  ORDER BY empid;
+
+SELECT * exclude empid
+  FROM monthly_sales
+    UNPIVOT INCLUDE NULLS (sales FOR month IN (jan, feb, mar, apr))
+  ORDER BY dept;
+
+-------------------------------------------------------------------------------------------------------------------------------------SAMPLE / TABLESAMPLE
+--Returns a subset of rows sampled randomly from the specified table
+
+CREATE OR REPLACE TABLE employees (
+  empid INT,
+  name TEXT,
+  department TEXT,
+  salary INT
+);
+
+INSERT INTO employees (empid, name, department, salary) VALUES
+  (1, 'Alice', 'HR', 50000),
+  (2, 'Bob', 'Engineering', 70000),
+  (3, 'Charlie', 'Marketing', 60000),
+  (4, 'David', 'Engineering', 75000),
+  (5, 'Eve', 'HR', 52000),
+  (6, 'Frank', 'Marketing', 58000),
+  (7, 'Grace', 'Engineering', 72000),
+  (8, 'Hank', 'HR', 51000),
+  (9, 'Ivy', 'Marketing', 61000),
+  (10, 'Jack', 'Engineering', 74000);
+
+
+SELECT *
+FROM employees
+SAMPLE (60);
+
+SELECT * FROM employees SAMPLE (100);
+
+SELECT * FROM employees tABLESAMPLE BERNOULLI (20.3);
+
+-----------------------------------------------------------------------------------------------------------------------------------
+--QUALIFY
+--In a SELECT statement, the QUALIFY clause filters the results of window functions.
+--QUALIFY does with window functions what HAVING does with aggregate functions and GROUP BY clauses.
+--the QUALIFY clause requires at least one window function to be specified
+
+The SELECT column list.
+
+The filter predicate of the QUALIFY clause.
+
+CREATE TABLE qt (i INTEGER, p CHAR(1), o INTEGER);
+INSERT INTO qt (i, p, o) VALUES
+    (1, 'A', 1),
+    (2, 'A', 2),
+    (3, 'B', 1),
+    (4, 'B', 2);
+
+SELECT * 
+    FROM (
+         SELECT i, p, o, 
+                ROW_NUMBER() OVER (PARTITION BY p ORDER BY o) AS row_num
+            FROM qt
+        )
+    WHERE row_num = 1
+    ;
+
+
+SELECT i, p, o
+    FROM qt
+    QUALIFY ROW_NUMBER() OVER (PARTITION BY p ORDER BY o) = 1
+    ;
+
+
+USE ROLE ACCOUNTADMIN;
+
+CREATE MANAGED ACCOUNT Reader_account_2
+    ADMIN_NAME =tejanarina ADMIN_PASSWORD = 'Phani@9849075337' ,
+    TYPE = READER;
+create or replace share demo_share
+comment='this is for database';
+
+grant usage on database analytics to share demo_share;
+grant usage on schema hr to share demo_share;
+
+ALTER SHARE demo_share set ACCOUNT=SUHGSXJ.READER_ACCOUNT_2;
+
+
+DESCRIBE MANAGED ACCOUNT READER_ACCOUNT_1;
+
+
+
+
+

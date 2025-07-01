@@ -1,0 +1,112 @@
+CREATE OR REPLACE DATABASE UF_DB;
+
+CREATE OR REPLACE SCHEMA UF_SCHEMA;
+
+create or replace table orders(
+    order_id number,
+    customer_id_fk number,
+    item_id_fk number,
+    retail_price number(10,2),
+    purchase_price number(10,2),
+    sold_quantity number(3),
+    country_code varchar(2)
+);
+
+-- inserting handful records
+insert into orders 
+(order_id, customer_id_fk, item_id_fk,retail_price,purchase_price, sold_quantity,country_code)
+values
+(1,1,1,99.2,89.6,2,'US'),
+(2,8,2,17.1,11,10,'IN'),
+(3,5,1,827,900.99,5,'JP'),
+(4,10,4,200,172,7,'DE');
+
+-- lets check the records
+select * from orders;
+
+CREATE OR REPLACE FUNCTION UDF_1(RETAIL_PRICE NUMBER,PURCHASE_PRICE NUMBER,SOLD_QUANTITY NUMBER)
+RETURNS NUMBER
+AS
+$$
+SELECT (RETAIL_PRICE-PURCHASE_PRICE)*SOLD_QUANTITY
+$$;
+
+SELECT order_id, customer_id_fk, item_id_fk,UDF_1(RETAIL_PRICE,PURCHASE_PRICE ,SOLD_QUANTITY)
+from orders;
+
+CREATE OR REPLACE FUNCTION UDF_2(COUNTRY_CODE STRING)
+RETURNS STRING
+AS
+$$
+SELECT COUNTRY_CODE ||'-'|| CASE
+WHEN COUNTRY_CODE='US' THEN 'USA'
+WHEN COUNTRY_CODE='IN' THEN 'INDIA'
+WHEN COUNTRY_CODE='JP'THEN 'JAPAN'
+ELSE 'UNKNOWN' 
+END
+$$;
+
+SELECT UDF_2(COUNTRY_CODE) FROM ORDERS;
+
+--RETURN KEYWord is must in definition section for udfs
+--should not conatin semi column which leads to error
+--if langugae parameter is not specified then it will take default value which sql
+-- for other languages u need to mention the language
+--using keyword secure we can create secure udfs
+--if your udf should not return  null then u should not null after language and before comment
+--return null on null input parameter returns null
+
+CREATE OR REPLACE FUNCTION UDF_3(COUNTRY_CODE STRING)
+RETURNS STRING
+language sql
+AS
+$$
+SELECT COUNTRY_CODE ||'-'|| CASE
+WHEN COUNTRY_CODE='US' THEN 'USA'
+WHEN COUNTRY_CODE='IN' THEN 'INDIA'
+WHEN COUNTRY_CODE='JP'THEN 'JAPAN'
+ELSE 'UNKNOWN' 
+END
+$$;
+
+create or replace function udf_4()
+returns string
+language javascript
+as
+$$
+return 'its simple';
+$$;
+
+--in not null udf sql will still return null after defining not null parameter in udf but where as in javascript it give you a error
+--msg nulll result in non nullable column
+--same case with sql udf for return null on null input parameter there will not be any difference with null and with normal parameters but where as in javascript you will have a difference.
+
+--table functions udfs
+--scalar function return one row for one input parameter where as tanle functions returns table like (multiple rows and columns)
+
+create or replace function udf_5_table_function()
+returns table(name varchar,is_aggregate varchar,is_ansi varchar)
+as
+$$
+select "name","is_aggregate","is_ansi",
+from table(result_scan('query_id')) t
+where is_built='y'
+$$;
+
+
+--overloading udf's
+--snowflake supports overloading when the varibles names or variables types are different
+create or replace function udf_6(x number,y number)
+returns number
+as
+$$
+select x+y
+$$;
+
+create or replace function udf_6(x string, y string)
+returns string
+as
+$$
+select x||y
+$$;
+

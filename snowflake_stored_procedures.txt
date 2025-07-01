@@ -1,0 +1,492 @@
+CREATE OR REPLACE DATABASE SP_DB;
+
+CREATE OR REPLACE SCHEMA SP_SCHEMA;
+
+create or replace transient table customer (
+    customer_id int,
+    salutation varchar,
+    first_name varchar,
+    last_name varchar,
+    birth_day int,
+    birth_month int,
+    birth_year int,
+    birth_country varchar,
+    email_address varchar,
+    cust_status varchar
+) comment ='this is simple customer table';
+
+insert into customer (
+customer_id ,salutation ,first_name ,last_name ,birth_day ,birth_month ,birth_year ,birth_country ,email_address,cust_status )
+values (101,'Mr.', 'Cust-1','LName-1',10,12,2000,'Japan','cust-1.lname-1@gmail.com','Active'),
+(102,'Mr.', 'Cust-2','LName-2',27,11,1999,'USA','cust-2.lname-2@gmail.com','Inactive'),
+(103,'Mr.', 'Cust-3','LName-3',21,2,1998,'UK','cust-3.lname-3@gmail.com','Blocked'),
+(104,'Mr.', 'Cust-4','LName-4',19,9,1997,'USA','cust-4.lname-4@gmail.com','Active'),
+(105,'Mr.', 'Cust-5','LName-5',11,3,1997,'Canada','cust-5.lname-5@gmail.com','Unknown');
+
+-- lets validate the data
+select * from customer;
+
+
+CREATE OR REPLACE PROCEDURE sp_get_customers()
+  RETURNS STRING
+  LANGUAGE SQL
+  AS
+  $$
+  BEGIN
+    CREATE OR REPLACE TEMP TABLE temp_customers AS
+    SELECT * FROM CUSTOMER;
+
+    RETURN 'Data inserted into temp_customers';
+  END;
+  $$;
+
+-- Call the procedure
+CALL sp_get_customers();
+
+-- Then query the result
+SELECT * FROM temp_customers;
+
+
+CREATE OR REPLACE PROCEDURE SP2()
+RETURNS STRING
+LANGUAGE SQL
+AS
+$$
+BEGIN
+DELETE FROM CUSTOMER WHERE CUST_STATUS='Unknown';
+RETURN 'DELETED SUCCESSFULY';
+END;
+$$;
+
+
+CALL SP2();
+
+SELECT * FROM CUSTOMER;
+
+CREATE OR REPLACE PROCEDURE SP3()
+RETURNS STRING
+LANGUAGE SQL
+AS
+$$
+BEGIN
+DELETE FROM CUSTOMER WHERE CUST_STATUS='Blocked';
+DELETE FROM CUSTOMER WHERE CUST_STATUS='Unknown';
+RETURN 'DONE SUCCESSFULLY';
+END;
+$$;
+
+CALL SP3();
+
+SELECT * FROM CUSTOMER;
+
+CREATE OR REPLACE PROCEDURE SP3()
+RETURNS STRING
+LANGUAGE JAVASCRIPT
+AS
+$$
+var text=snowflake.execute({sqlText:`DELETE FROM CUSTOMER WHERE CUST_STATUS='Blocked';`});
+return 'Deleted';
+$$;
+
+call sp3();
+
+
+CREATE OR REPLACE PROCEDURE SP4()
+RETURNS STRING
+LANGUAGE JAVASCRIPT
+AS
+$$
+var text1=snowflake.execute({sqlText:`DELETE FROM CUSTOMER WHERE CUST_STATUS='Blocked';`});
+var text2=snowflake.execute({sqlText:`DELETE FROM CUSTOMER WHERE CUST_STATUS='Unknown'`});
+return 'Deleted';
+$$;
+
+call sp4();
+
+select * from customer;
+
+--EXECUTE IMMEDIATE is used to run dynamic SQL.
+--''' || IN_PARAM || '''' ensures the string value is properly quoted inside the SQL statement.
+
+CREATE OR REPLACE PROCEDURE SP5(IN_PARAM STRING)
+RETURNS STRING
+LANGUAGE SQL
+AS
+$$
+BEGIN
+EXECUTE IMMEDIATE 
+'DELETE FROM CUSTOMER WHERE CUST_STATUS='''|| IN_PARAM ||'''';
+RETURN 'DELETED';
+END;
+$$;
+
+
+CALL SP5('Unknown');
+
+select * from customer;
+
+CREATE OR REPLACE PROCEDURE SP6(IN_PARAM STRING)
+RETURNS STRING
+LANGUAGE JAVASCRIPT
+AS
+$$
+var sql_command = "DELETE FROM CUSTOMER WHERE CUST_STATUS = '" + IN_PARAM + "'";
+var statement = snowflake.execute({sqlText: sql_command});
+return 'DELETED';
+$$;
+
+-- Call the procedure
+CALL SP6('Blocked');
+
+select * from customer;
+
+
+CREATE OR REPLACE PROCEDURE SP7()
+RETURNS NUMBER
+LANGUAGE SQL
+AS
+$$
+BEGIN 
+RETURN 2.4;
+END;
+$$;
+
+CALL SP7();
+
+
+CREATE OR REPLACE PROCEDURE SP8()
+RETURNS FLOAT --THE DATA TYPE NUMBER REPRESENTED BY FLOAT
+LANGUAGE JAVASCRIPT
+AS
+$$
+var num=2;
+return num;
+$$;
+
+CALL SP8();
+
+
+
+CREATE PROCEDURE f(argument1 VARCHAR)
+RETURNS VARCHAR
+LANGUAGE JAVASCRIPT --this case sensitivity is in only javascript where as in sql no issues
+AS
+$$
+var local_variable1 = argument1;  // Incorrect
+var local_variable2 = ARGUMENT1;  // Correct
+$$;
+
+
+CREATE OR REPLACE PROCEDURE SP9(argument1 VARCHAR)
+RETURNS STRING
+LANGUAGE JAVASCRIPT 
+CALLED ON NULL INPUT --RUNS FINE ON NULL INPUT (OTHER PARAMETER: RETURN NULL ON NULL INPUT | STRICT,HERE IT WILL(PROCEDURE BODY) NOT EXCECUTED 
+AS
+$$
+var local_variable1 = argument1;  // Incorrect
+var local_variable2 = ARGUMENT1;  // Correct
+$$;
+
+CREATE PROCEDURE f(argument1 VARCHAR)
+RETURNS VARCHAR
+LANGUAGE JAVASCRIPT
+COMMENT='HI PROCEDURE'
+AS
+$$
+var local_variable1 = argument1;  // Incorrect
+var local_variable2 = ARGUMENT1;  // Correct
+$$;
+
+
+CREATE OR REPLACE PROCEDURE SP8()
+RETURNS FLOAT --THE DATA TYPE NUMBER REPRESENTED BY FLOAT
+LANGUAGE JAVASCRIPT --if there is single quote used in the body then use $$ 
+AS
+'
+var num=2;
+return num;
+';
+--in javascript stored procedure the error are validated during run time and through errors during run time.
+
+create or replace transient table customer2 (
+    customer_id int,
+    salutation varchar,
+    first_name varchar,
+    last_name varchar,
+    birth_day int,
+    birth_month int,
+    birth_year int,
+    birth_country varchar,
+    email_address varchar,
+    cust_status varchar
+) comment ='this is simple customer table';
+
+insert into customer2 (customer_id ,salutation ,first_name ,last_name ,birth_day ,birth_month ,birth_year ,birth_country ,email_address,cust_status )
+values 
+(101,'Mr.', 'Cust-1','LName-1',10,12,2000,'Japan','cust-1.lname-1@gmail.com','Active'),
+(102,'Mr.', 'Cust-2','LName-2',27,11,1999,'USA','cust-2.lname-2@gmail.com','Inactive'),
+(103,'Mr.', 'Cust-3','LName-3',21,2,1998,'UK','cust-3.lname-3@gmail.com','Blocked'),
+(104,'Mr.', 'Cust-4','LName-4',19,9,1997,'USA','cust-4.lname-4@gmail.com','Active'),
+(105,'Mr.', 'Cust-5','LName-5',11,3,1997,'Canada','cust-5.lname-5@gmail.com','Unknown');
+
+-- lets validate the data
+select * from customer;
+
+
+
+CREATE OR REPLACE PROCEDURE get_customer_names(status string)
+returns string
+language javascript
+comment ='this the comment'
+as
+$$
+var return_val=" ";
+var sql="select salutation,first_name,last_name from customer2 where cust_status='"+STATUS+"'";
+
+var sql_statement=snowflake.createStatement({
+sqlText:sql
+}
+);
+var result=sql_statement.execute();
+while (result.next())
+{
+return_val+="\n";
+return_val+=result.getColumnValue(1);
+return_val+=" "+result.getColumnValue(2);
+return_val+=" "+result.getColumnValue(3)+",";
+}
+return return_val;
+$$;
+
+call get_customer_names('Active');
+
+--bind varaible concept-this helps with quotes and other complexities
+
+CREATE OR REPLACE PROCEDURE get_customer_names2(status string)
+returns string
+language javascript
+comment ='this the comment'
+as
+$$
+var return_val=" ";
+var sql="select salutation,first_name,last_name from customer2 where cust_status=?";
+
+var sql_statement=snowflake.createStatement({
+sqlText:sql,
+binds:[STATUS]
+}
+);
+var result=sql_statement.execute();
+while (result.next())
+{
+return_val+="\n";
+return_val+=result.getColumnValue(1);
+return_val+=" "+result.getColumnValue(2);
+return_val+=" "+result.getColumnValue(3)+",";
+}
+return return_val;
+$$;
+
+call get_customer_names2('Active');
+
+--multi line continuation
+--using blackslash
+--using backtick
+--using+=operator
+
+--owners and caller rights
+--excute as caller: which ever user call this procedure and that role user should have all necessary grants and privileges to this table and other objects which stored procedure is trying to access and perform different transformations otherwise fail
+--execute as owner:which ever user call this procedure and that role user may or may not have all necessary grants and privileges to this table and other objects which stored procedure is trying to access and perform different transformations will work without grants.only procedure grant is enough.
+
+--exception handling in snowflake stored procedure:
+--using try catch block
+
+
+create or replace procedure except_proce()
+returns varchar not null
+language javascript
+as
+$$
+var result=" ";
+try 
+{
+snowflake.execute({sqlText:"select current_role,current_dbs()"});
+result=successed;
+}
+
+catch(err) {
+    result = "Failed:\n";
+    result += "Code: " + err.code + "\n";
+    result += "State: " + err.state + "\n";
+    result += "Message: " + err.message + "\n";
+    result += "Stack Trace: " + err.stackTraceTxt;
+}
+
+return result
+$$;
+
+call except_proce();
+
+
+--Implementation of SCD Type 2 using Stored Procedures
+
+CREATE DATABASE IF NOT EXISTS EMP;
+
+CREATE SCHEMA IF NOT EXISTS STAGING;
+CREATE SCHEMA IF NOT EXISTS TARGET;
+
+-- Create a stage table
+CREATE or replace TABLE STAGING.STG_EMPL
+( eid INTEGER not null,
+  ename VARCHAR(30),
+  dob DATE,
+  mail VARCHAR(50),
+  phone VARCHAR(20),
+  salary INTEGER,
+  dept VARCHAR(30),
+  loc VARCHAR(20),
+  PRIMARY KEY(eid)
+);
+
+-- Create the target table
+CREATE or replace TABLE TARGET.EMPL_SCD2
+( emp_id INTEGER not null,
+  emp_name VARCHAR(50),
+  date_of_birth DATE,
+  email_id VARCHAR(50),
+  phone_number VARCHAR(20),
+  salary INTEGER,
+  department VARCHAR(30),
+  work_location VARCHAR(30),
+  effective_datetime TIMESTAMP,
+  expiry_datetime TIMESTAMP,
+  PRIMARY KEY(emp_id, effective_datetime)
+);
+
+-- Create a stream on stage table
+CREATE or replace STREAM STAGING.STREAM_STG_EMPL_U ON TABLE STAGING.STG_EMPL;
+CREATE or replace STREAM STAGING.STREAM_STG_EMPL_I ON TABLE STAGING.STG_EMPL;
+
+-- Create a prcedure to implement Type II logic
+CREATE OR REPLACE PROCEDURE EMP.TARGET.PROC_EMPL_SCD_TPYE2()
+RETURNS VARCHAR
+LANGUAGE SQL
+EXECUTE AS CALLER
+AS
+
+DECLARE 
+	cur_ts TIMESTAMP;
+	
+BEGIN
+	cur_ts := CURRENT_TIMESTAMP();
+	
+	--Expire old records and insert new records
+	MERGE INTO TARGET.EMPL_SCD2 TGT
+	USING STAGING.STREAM_STG_EMPL_U STR
+	ON TGT.emp_id = STR.eid
+	AND TGT.expiry_datetime is NULL
+	
+	WHEN MATCHED
+	  AND STR.METADATA$ACTION = 'DELETE'
+	  AND STR.METADATA$ISUPDATE = 'TRUE'
+	THEN
+	  UPDATE SET TGT.expiry_datetime = :cur_ts
+	  
+	WHEN NOT MATCHED THEN
+	  INSERT(emp_id, emp_name, date_of_birth, email_id, phone_number, salary, department, work_location, effective_datetime, expiry_datetime)
+	  VALUES(STR.eid, STR.ename, STR.dob, STR.mail, STR.phone, STR.salary, STR.dept, STR.loc, :cur_ts, null)
+	;
+	
+	--Insert the new version of old records
+	INSERT INTO TARGET.EMPL_SCD2
+	(emp_id, emp_name, date_of_birth, email_id, phone_number, salary, department, work_location, effective_datetime, expiry_datetime)
+	SELECT eid, ename, dob, mail, phone, salary, dept, loc, :cur_ts, null
+	FROM STAGING.STREAM_STG_EMPL_I
+	WHERE METADATA$ACTION = 'INSERT'
+	  AND METADATA$ISUPDATE = 'TRUE'
+	;
+	
+	RETURN 'Procedure Completed Successfully';
+	
+END;
+
+CALL EMP.TARGET.PROC_EMPL_SCD_TPYE2();
+
+
+-- Schedule the procedure 
+CREATE OR REPLACE TASK TARGET.TASK_EMPL_DATA_LOAD2
+    SCHEDULE = '2 MINUTES'
+    WHEN SYSTEM$STREAM_HAS_DATA('STAGING.STREAM_STG_EMPL_U')
+AS
+CALL EMP.TARGET.PROC_EMPL_SCD_TPYE2()
+;
+
+// Start the task
+ALTER TASK TARGET.TASK_EMPL_DATA_LOAD2 RESUME;
+
+-- Data load into stage table
+INSERT INTO STAGING.STG_EMPL VALUES
+(1, 'Rahul Sharma', '1986-04-15', 'rahul.sharma@gmail.com','9988776655', 92000, 'Administration', 'Bangalore'),
+(2, 'Renuka Devi', '1993-10-19', 'renuka1993@yahoo.com','+91 9911882255', 61000, 'Sales', 'Hyderabad'),
+(3, 'Kamalesh', '1991-02-08', 'kamal91@outlook.com','9182736450', 59000, 'Sales', 'Chennai'),
+(4, 'Arun Kumar', '1989-05-20', 'arun_kumar@gmail.com','901-287-3465', 74500, 'IT', 'Bangalore')
+;
+
+-- Observe the Streams now with change capture
+SELECT * FROM STAGING.STREAM_STG_EMPL_U;
+SELECT * FROM STAGING.STREAM_STG_EMPL_I;
+
+-- After 1st run
+-- Verify the data in Target table
+SELECT * FROM TARGET.EMPL_SCD2;
+
+-- Observe the Streams now after consuming the changes
+SELECT * FROM STAGING.STREAM_STG_EMPL_U;
+SELECT * FROM STAGING.STREAM_STG_EMPL_I;
+
+-------------------------------------------
+-- Make changes to the Stage table (Assume it is truncate and load with new and updated records)
+
+INSERT INTO STAGING.STG_EMPL VALUES
+(5, 'Deepika Kaur', '1995-09-03', 'deepikakaur@gmail.com', '9871236054', 58000, 'IT', 'Pune');
+
+UPDATE STAGING.STG_EMPL SET phone = '9911882255' WHERE eid = 2;
+
+
+-- Observe the Streams now with change capture
+SELECT * FROM STAGING.STREAM_STG_EMPL_U;
+SELECT * FROM STAGING.STREAM_STG_EMPL_I;
+
+-- After 2 minutes (task will be running for every 2 mins)
+-- Verify the data in Target table
+SELECT * FROM TARGET.EMPL_SCD2;
+
+-- Observe the Streams now after consuming the changes
+SELECT * FROM STAGING.STREAM_STG_EMPL_U;
+SELECT * FROM STAGING.STREAM_STG_EMPL_I;
+
+-------------------------------------------
+-- One more time Make changes to the Stage table (Assume it is truncate and load with new and updated records)
+
+INSERT INTO STAGING.STG_EMPL VALUES
+(6, 'Venkatesh D', '1992-01-27', 'dvenkat92@gmail.com', '8921764305', 63500, 'IT', 'Chennai');
+
+UPDATE STAGING.STG_EMPL SET salary = 65000 WHERE eid = 2;
+UPDATE STAGING.STG_EMPL SET phone = '9012873465', loc = 'Hyderabad' WHERE eid = 4;
+
+
+-- Observe the Streams now with change capture
+SELECT * FROM STAGING.STREAM_STG_EMPL_U;
+SELECT * FROM STAGING.STREAM_STG_EMPL_I;
+
+-- After 2 minutes (task will be running for every 2 mins)
+-- Verify the data in Target table
+SELECT * FROM TARGET.EMPL_SCD2;
+
+-- Observe the Streams now after consuming the changes
+SELECT * FROM STAGING.STREAM_STG_EMPL_U;
+SELECT * FROM STAGING.STREAM_STG_EMPL_I;
+
+--------------
+-- Stop or drop the task, otherwise all your free credits will be consumed
+ALTER TASK TARGET.TASK_EMPL_DATA_LOAD2 SUSPEND;
